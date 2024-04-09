@@ -2,6 +2,7 @@ import numpy as np
 import torch.nn as nn
 import torch
 import torch.nn.functional as F
+import time
 
 
 def read_file_to_tensor(filename):
@@ -52,23 +53,19 @@ class LeNet(nn.Module):
         # print("After Max Pooling1 (Channel 2):\n",  x[:, 1, :, :])
         # print("After Max Pooling1 (Channel 3):\n",  x[:, 2, :, :])
         # print("After Max Pooling1 (Channel 4):\n",  x[:, 3, :, :])
-
-
-        conv2_output_without_biases = F.conv2d(x, self.conv2_weights, stride=1, padding=0)
+        x = F.conv2d(x, self.conv2_weights,
+                     bias=self.conv2_biases, stride=1, padding=0)
 
         # print("After Conv2 without biases:\n", conv2_output_without_biases[:, 0, :, :])
 
-        x = conv2_output_without_biases + self.conv2_biases.view(1, -1, 1, 1)
         # print("After Conv2 with biases:\n", x[:, 0, :, :])
         # print("After Conv2 (Channel 1):\n",  x[:, 0, :, :])
         # print("After Conv2 (Channel 2):\n",  x[:, 1, :, :])
         # print("After Conv2 (Channel 3):\n",  x[:, 2, :, :])
         # print("After Conv2 (Channel 4):\n",  x[:, 3, :, :])
 
-
         x = F.max_pool2d(x, kernel_size=2, stride=2)
         # print("After Max Pooling2:\n", x[:, 0, :, :])
-
 
         # Flatten
         x = torch.flatten(x, 1)
@@ -103,6 +100,9 @@ class LeNet(nn.Module):
 
 if __name__ == "__main__":
     # Ensure 'output.txt' is in your current working directory
+    # Start Timer
+    start = time.time()
+
     np.set_printoptions(threshold=np.inf)
     input_image = read_file_to_tensor('output.txt').view(1, 1, 28, 28)
     lenet = LeNet()
@@ -111,3 +111,7 @@ if __name__ == "__main__":
     # Print top 5 probabilities and their class labels
     for prob, idx in zip(top_probabilities, top_indices):
         print(f"{prob:.4f}% class {idx}")
+
+    # End Timer
+    end = time.time()
+    print(f"Time taken: {end - start} seconds")

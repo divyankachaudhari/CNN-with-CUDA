@@ -165,7 +165,7 @@ void runConvolutionAndAddBiases(const float* input, const float* kernels, float*
 
 
     addBiasesKernel<<<numBlocks, threadsPerBlock>>>(d_output, d_biases, outputWidth, outputWidth, numOutputChannels);
-    cudaDeviceSynchronize();
+    // cudaDeviceSynchronize();
 
     // Copy the result back to host
     cudaMemcpy(output, d_output, outputSize, cudaMemcpyDeviceToHost);
@@ -292,304 +292,87 @@ __global__ void softmaxKernel(float* input, float* output, int count) {
 }
 
 int main() {
-
+    const fs::path directoryPath("processed_data10k");
     // STart clock
     auto start = std::chrono::high_resolution_clock::now();
 
-    const fs::path directoryPath("processed_data");
-    if (fs::exists(directoryPath) && fs::is_directory(directoryPath)) {
-        fs::directory_iterator end_itr; // Default construction yields past-the-end
-        for (fs::directory_iterator itr(directoryPath); itr != end_itr; ++itr) {
-            if (fs::is_regular_file(itr->status())) {
-                const auto& filePath = itr->path();
-                if (filePath.extension() == ".txt") {// Check if the file is a text file
-            // std::cout << "Processing " << filePath << std::endl;
-
-            std::vector<float> image(28 * 28); // Assuming MNIST images are 28x28 pixels
-            loadMNISTImageMatrix(filePath.string(), image);
-            
-// Assuming 28x28 input image size (MNIST)
+    // Assuming 28x28 input image size (MNIST)
+    std::vector<float> image(28 * 28); // Assuming MNIST images are 28x28 pixels
     const int imageSize = 28;
-    // std::vector<float> image(imageSize * imageSize);
-    // // Load an MNIST image matrix from a file named "output.txt"
-    // loadMNISTImageMatrix("output.txt", image);
-    // std::cout << "Loaded Image:" << std::endl;
-    // Optionally, print the loaded image to verify
-    // printFlatMatrix(image, imageSize, imageSize);
-
-// ---------------- First Convolution Layer ----------------------//
-
     // Load weights and biases for the first convolutional layer
     std::vector<float> weightsConv1, biasesConv1;
-    loadWeightsAndBiases("trained_weights/conv1.txt", weightsConv1, biasesConv1, 20); // Assuming 20 biases for Conv1 layer
-
-    // Calculate output size based on the convolution operation without padding
-    const int outputHeightConv1 = imageSize - 5 + 1; // kernelSizeConv1 is 5
-    const int outputWidthConv1 = imageSize - 5 + 1;
-    const int numOutputChannelsConv1 = 20;
-
-    // Prepare output array for the convolution result
-    std::vector<float> outputConv1(outputHeightConv1 * outputWidthConv1 * numOutputChannelsConv1);
-
-    // Run convolution on GPU
-    // runConvolution(image.data(), weightsConv1.data(), outputConv1.data(), imageSize, imageSize, 5, 1, numOutputChannelsConv1);
-    runConvolutionAndAddBiases(image.data(), weightsConv1.data(), outputConv1.data(), 
-                   imageSize, imageSize, 5, 1, numOutputChannelsConv1, biasesConv1.data());
-    // const int numChannelsToPrint = 4; // Number of channels to print
-    
-    // std::cout << "Convolution Output for First Four Channels (after adding biases):" << std::endl;
-    // for (int ch = 0; ch < numChannelsToPrint; ++ch) {
-    //     std::cout << "Channel " << (ch + 1) << ":" << std::endl;
-    //     for (int i = 0; i < outputHeightConv1; ++i) {
-    //         for (int j = 0; j < outputWidthConv1; ++j) {
-    //             // Calculate the correct index in the flat output array
-    //             int index = (ch * outputHeightConv1 * outputWidthConv1) + (i * outputWidthConv1) + j;
-    //             std::cout << outputConv1[index] << " ";
-    //         }
-    //         std::cout << std::endl;
-    //     }
-    //     std::cout << std::endl; // Extra line break for clarity between channels
-    // }
-
-// ---------------- Max Pooling for Conv1 ----------------------// 
-
-   // Alreadt have outputConv1, outputWidthConv1, outputHeightConv1, numChannelsConv1
-
-    // Output dimensions after applying max pooling with kernel_size=2, stride=2
-
-    const int pooledInputWidthConv1 = outputWidthConv1; // 24
-    const int pooledInputHeightConv1 = outputHeightConv1; // 24
-    const int numChannelsConv1 = numOutputChannelsConv1; // 20
-    const int strideConv1 = 2, poolSizeConv1 = 2; // Stride for max pooling
-    
-    const int pooledOutputWidthConv1 = 12; // 12
-    const int pooledOutputHeightConv1 = 12; // 12
-    const int pooledOutputChannelsConv1 = 20; // 20
-
-    // Allocate memory for the output of the max pooling operation
-    // Input: d_outputConv1, Output: d_pooledOutputConv1
-    float *d_pooledInputConv1, *d_pooledOutputConv1; 
-    cudaMalloc(&d_pooledOutputConv1, pooledOutputWidthConv1 * pooledOutputHeightConv1 * numChannelsConv1 * sizeof(float));
-    cudaMalloc(&d_pooledInputConv1, pooledInputWidthConv1 * pooledInputHeightConv1 * numChannelsConv1 * sizeof(float));
-    cudaMemcpy(d_pooledInputConv1, outputConv1.data(), outputConv1.size() * sizeof(float), cudaMemcpyHostToDevice);
-
-    // Define kernel execution configuration for maxPoolingKernel
-    dim3 threadsPerBlockPoolingConv1(16, 16, 1); // Using 1 for z-dimension since pooling is applied per channel
-    dim3 numBlocksPoolingConv1(
-    (pooledOutputWidthConv1 + threadsPerBlockPoolingConv1.x - 1) / threadsPerBlockPoolingConv1.x,
-    (pooledOutputHeightConv1 + threadsPerBlockPoolingConv1.y - 1) / threadsPerBlockPoolingConv1.y,
-    numChannelsConv1); // One block per channel
-
-    // __global__ void maxPoolingKernel(const float *input, float *output, int inputHeight, int inputWidth, int outputHeight, int outputWidth, int numChannels, int stride, int poolSize)
-    maxPoolingKernel<<<numBlocksPoolingConv1, threadsPerBlockPoolingConv1>>>(d_pooledInputConv1, d_pooledOutputConv1, pooledInputHeightConv1, pooledInputWidthConv1, pooledOutputHeightConv1, pooledOutputWidthConv1, pooledOutputChannelsConv1, strideConv1, poolSizeConv1);
-    cudaDeviceSynchronize();
-
-    // Check for any errors launching the kernel
-    cudaError_t poolingError = cudaGetLastError();
-    if (poolingError != cudaSuccess) {
-        std::cerr << "CUDA error in maxPoolingKernel: " << cudaGetErrorString(poolingError) << std::endl;
-    }
-
-    // Example: Copy the pooled output back to the host for inspection
-    std::vector<float> pooledOutputConv1(pooledOutputWidthConv1 * pooledOutputHeightConv1 * numChannelsConv1);
-    cudaMemcpy(pooledOutputConv1.data(), d_pooledOutputConv1, pooledOutputConv1.size() * sizeof(float), cudaMemcpyDeviceToHost);
-
-    // Free device memory
-    cudaFree(d_pooledInputConv1);
-    cudaFree(d_pooledOutputConv1);
-
-    // const int numChannelsToPrint = 4; 
-
-    // std::cout << "Max Pooling Output for First Four Channels (Conv1):" << std::endl;
-    // for (int ch = 0; ch < numChannelsToPrint; ++ch) {
-    //     std::cout << "Channel " << (ch + 1) << ":" << std::endl;
-    //     for (int i = 0; i < pooledOutputHeightConv1; ++i) {
-    //         for (int j = 0; j < pooledOutputWidthConv1; ++j) {
-    //             // Calculate the correct index in the flat output array
-    //             int index = (ch * pooledOutputHeightConv1 * pooledOutputWidthConv1) + (i * pooledOutputWidthConv1) + j;
-    //             std::cout << pooledOutputConv1[index] << " ";
-    //         }
-    //         std::cout << std::endl;
-    //     }
-    //     std::cout << std::endl; // Extra line break for clarity between channels
-    // }
-
- // ----------------- Second Convolution Layer ----------------- //
-
-    const int inputHeightConv2 = pooledOutputHeightConv1; // 12
-    const int inputWidthConv2 = pooledOutputWidthConv1; // 12
-    const int numInputChannelsConv2 = pooledOutputChannelsConv1; // 20
-    const int kernelSizeConv2 = 5; // 5
-
-    const int outputHeightConv2 = inputHeightConv2 - 5 + 1; // kernelSizeConv2 is 5
-    const int outputWidthConv2 = inputWidthConv2 - 5 + 1;
-    const int numOutputChannelsConv2 = 50; // 50
-
+    loadWeightsAndBiases("trained_weights/conv1.txt", weightsConv1, biasesConv1, 20); // Assuming 
+        // Load weights and biases for the second fully connected layer
     // Load weights and biases for the second convolutional layer
     std::vector<float> weightsConv2, biasesConv2;
     loadWeightsAndBiases("trained_weights/conv2.txt", weightsConv2, biasesConv2, 50); // Assuming 50 biases for Conv2 layer
 
+        // Load weights and biases for the first fully connected layer
+    std::vector<float> weightsFC1, biasesFC1;
+    loadWeightsAndBiases("trained_weights/fc1.txt", weightsFC1, biasesFC1, 500); // Assuming 500 biases for FC1 layer
+
+    std::vector<float> weightsFC2, biasesFC2;
+    loadWeightsAndBiases("trained_weights/fc2.txt", weightsFC2, biasesFC2, 10); // Assuming 10 biases for FC2 layer
+
+    std::vector<float> outputConv1(24 * 24 * 20);
+
+    // Allocate memory for the output of the max pooling operation
+    // Input: d_outputConv1, Output: d_pooledOutputConv1
+    float *d_pooledInputConv1, *d_pooledOutputConv1; 
+    cudaMalloc(&d_pooledOutputConv1, 12 * 12 * 20 * sizeof(float));
+    cudaMalloc(&d_pooledInputConv1, 24 * 24 * 20 * sizeof(float));
+
+
+    // Define kernel execution configuration for maxPoolingKernel
+    dim3 threadsPerBlock(16, 16, 1); // Using 1 for z-dimension since pooling is applied per channel
+    dim3 numBlocksPoolingConv1(
+    (12 + threadsPerBlock.x - 1) / threadsPerBlock.x,
+    (12 + threadsPerBlock.y - 1) / threadsPerBlock.y,
+    20); // One block per channel
+
     // Prepare output array for the convolution result
-    std::vector<float> outputConv2(outputHeightConv2 * outputWidthConv2 * numOutputChannelsConv2);
-
-    // // Run convolution on GPU
-    // runConvolution(pooledOutputConv1.data(), weightsConv2.data(), outputConv2.data(), 
-    //                inputHeightConv2, inputWidthConv2, kernelSizeConv2, numInputChannelsConv2, numOutputChannelsConv2);
-
-    runConvolutionAndAddBiases(pooledOutputConv1.data(), weightsConv2.data(), outputConv2.data(), 
-                   inputHeightConv2, inputWidthConv2, kernelSizeConv2, numInputChannelsConv2, numOutputChannelsConv2, biasesConv2.data());
-
-
-    // const int numChannelsToPrintConv2 = 4; // Number of channels to print
-
-    // std::cout << "Convolution Output for First Four Channels (Conv2) (after adding biases):" << std::endl;
-    // for (int ch = 0; ch < numChannelsToPrintConv2; ++ch) {
-    //     std::cout << "Channel " << (ch + 1) << ":" << std::endl;
-    //     for (int i = 0; i < outputHeightConv2; ++i) {
-    //         for (int j = 0; j < outputWidthConv2; ++j) {
-    //             // Calculate the correct index in the flat output array
-    //             int index = (ch * outputHeightConv2 * outputWidthConv2) + (i * outputWidthConv2) + j;
-    //             std::cout << outputConv2[index] << " ";
-    //         }
-    //         std::cout << std::endl;
-    //     }
-    //     std::cout << std::endl; // Extra line break for clarity between channels
-    // }
-
-    // ---------------- Max Pooling for Conv2 ----------------------//
-
-    const int pooledInputWidthConv2 = outputWidthConv2; // 8
-    const int pooledInputHeightConv2 = outputHeightConv2; // 8
-    const int numChannelsConv2 = numOutputChannelsConv2; // 50
-    const int strideConv2 = 2, poolSizeConv2 = 2; // Stride for max pooling
-
-    const int pooledOutputWidthConv2 = 4; // 4
-    const int pooledOutputHeightConv2 = 4; // 4
-    const int pooledOutputChannelsConv2 = 50; // 50
-
+    std::vector<float> outputConv2(8 * 8 * 50);
     // Allocate memory for the output of the max pooling operation
     // Input: d_outputConv2, Output: d_pooledOutputConv2
     float *d_pooledInputConv2, *d_pooledOutputConv2;
-    cudaMalloc(&d_pooledOutputConv2, pooledOutputWidthConv2 * pooledOutputHeightConv2 * numChannelsConv2 * sizeof(float));
-    cudaMalloc(&d_pooledInputConv2, pooledInputWidthConv2 * pooledInputHeightConv2 * numChannelsConv2 * sizeof(float));
-    cudaMemcpy(d_pooledInputConv2, outputConv2.data(), outputConv2.size() * sizeof(float), cudaMemcpyHostToDevice);
+    cudaMalloc(&d_pooledOutputConv2, 4 * 4 * 50 * sizeof(float));
+    cudaMalloc(&d_pooledInputConv2, 8 * 8 * 50 * sizeof(float));
 
     // Define kernel execution configuration for maxPoolingKernel
-    dim3 threadsPerBlockPoolingConv2(16, 16, 1); // Using 1 for z-dimension since pooling is applied per channel
+    // dim3 threadsPerBlock(16, 16, 1); // Using 1 for z-dimension since pooling is applied per channel
     dim3 numBlocksPoolingConv2(
-        (pooledOutputWidthConv2 + threadsPerBlockPoolingConv2.x - 1) / threadsPerBlockPoolingConv2.x,
-        (pooledOutputHeightConv2 + threadsPerBlockPoolingConv2.y - 1) / threadsPerBlockPoolingConv2.y,
-        numChannelsConv2); // One block per channel
+        (4 + threadsPerBlock.x - 1) / threadsPerBlock.x,
+        (4 + threadsPerBlock.y - 1) / threadsPerBlock.y,
+        50); // One block per channel
 
-    // __global__ void maxPoolingKernel(const float *input, float *output, int inputHeight, int inputWidth, int outputHeight, int outputWidth, int numChannels, int stride, int poolSize)
-    maxPoolingKernel<<<numBlocksPoolingConv2, threadsPerBlockPoolingConv2>>>(d_pooledInputConv2, d_pooledOutputConv2, pooledInputHeightConv2, pooledInputWidthConv2, pooledOutputHeightConv2, pooledOutputWidthConv2, pooledOutputChannelsConv2, strideConv2, poolSizeConv2);
-    cudaDeviceSynchronize();
 
-    // Check for any errors launching the kernel
-    cudaError_t poolingErrorConv2 = cudaGetLastError();
-    if (poolingErrorConv2 != cudaSuccess) {
-        std::cerr << "CUDA error in maxPoolingKernel: " << cudaGetErrorString(poolingErrorConv2) << std::endl;
-    }
-
-    // Example: Copy the pooled output back to the host for inspection
-    std::vector<float> pooledOutputConv2(pooledOutputWidthConv2 * pooledOutputHeightConv2 * numChannelsConv2);
-    cudaMemcpy(pooledOutputConv2.data(), d_pooledOutputConv2, pooledOutputConv2.size() * sizeof(float), cudaMemcpyDeviceToHost);
-
-    // Free device memory
-    cudaFree(d_pooledInputConv2);
-    cudaFree(d_pooledOutputConv2);
-
-    // const int numChannelsToPrintConv2 = 4;
-
-    // std::cout << "Max Pooling Output for First Four Channels (Conv2):" << std::endl;
-    // for (int ch = 0; ch < numChannelsToPrintConv2; ++ch) {
-    //     std::cout << "Channel " << (ch + 1) << ":" << std::endl;
-    //     for (int i = 0; i < pooledOutputHeightConv2; ++i) {
-    //         for (int j = 0; j < pooledOutputWidthConv2; ++j) {
-    //             // Calculate the correct index in the flat output array
-    //             int index = (ch * pooledOutputHeightConv2 * pooledOutputWidthConv2) + (i * pooledOutputWidthConv2) + j;
-    //             std::cout << pooledOutputConv2[index] << " ";
-    //         }
-    //         std::cout << std::endl;
-    //     }
-    //     std::cout << std::endl; // Extra line break for clarity between channels
-    // }
-
-// ----------------- Fully Connected Layer 1 ----------------- //
-
-    const int inputHeightFC1 = pooledOutputHeightConv2; // 4
-    const int inputWidthFC1 = pooledOutputWidthConv2; // 4
-    const int numChannelsFC1 = pooledOutputChannelsConv2; // 50
+    const int inputHeightFC1 = 4; // 4
+    const int inputWidthFC1 = 4; // 4
+    const int numChannelsFC1 = 50; // 50
     const int kernelSizeFC1 = 4; // 4
 
     const int outputHeightFC1 = 1; // 1
     const int outputWidthFC1 = 1; // 1
     const int numOutputChannelsFC1 = 500; // 500
 
-    // Load weights and biases for the first fully connected layer
-    std::vector<float> weightsFC1, biasesFC1;
-    loadWeightsAndBiases("trained_weights/fc1.txt", weightsFC1, biasesFC1, 500); // Assuming 500 biases for FC1 layer
 
     // Prepare output array for the convolution result
     std::vector<float> outputFC1(outputHeightFC1 * outputWidthFC1 * numOutputChannelsFC1);
 
-    // Run convolution on GPU
-    runConvolution(pooledOutputConv2.data(), weightsFC1.data(), outputFC1.data(), 
-                   inputHeightFC1, inputWidthFC1, kernelSizeFC1, numChannelsFC1, numOutputChannelsFC1);
-    // runConvolutionAndAddBiases(pooledOutputConv2.data(), weightsFC1.data(), outputFC1.data(), 
-    //                inputHeightFC1, inputWidthFC1, kernelSizeFC1, numChannelsFC1, numOutputChannelsFC1, biasesFC1.data());
-    cudaDeviceSynchronize();
 
     // After the convolution, add biases
     float* d_outputFC1;
     float* d_biasesFC1;
     cudaMalloc(&d_outputFC1, outputFC1.size() * sizeof(float));
     cudaMalloc(&d_biasesFC1, biasesFC1.size() * sizeof(float));
-    cudaMemcpy(d_outputFC1, outputFC1.data(), outputFC1.size() * sizeof(float), cudaMemcpyHostToDevice);
-    cudaMemcpy(d_biasesFC1, biasesFC1.data(), biasesFC1.size() * sizeof(float), cudaMemcpyHostToDevice);
 
-    dim3 threadsPerBlockFC1(16, 16, 1);
+
+    // dim3 threadsPerBlock(16, 16, 1);
     dim3 numBlocksFC1((outputWidthFC1 + 15) / 16, (outputHeightFC1 + 15) / 16, numOutputChannelsFC1);
-    addBiasesKernel<<<numBlocksFC1, threadsPerBlockFC1>>>(d_outputFC1, d_biasesFC1, outputWidthFC1, outputHeightFC1, numOutputChannelsFC1); 
-    cudaDeviceSynchronize();
-
-    // cudaMemcpy(d_outputFC1, outputFC1.data(), outputFC1.size() * sizeof(float), cudaMemcpyDeviceToHost);
-
-
     // Assume outputFC1 holds the FC1 output data on the device
     int totalOutputCountFC1 = outputHeightFC1 * outputWidthFC1 * numOutputChannelsFC1; // For FC1, this is essentially 500
     dim3 threadsPerBlockReLU(256);
     dim3 blocksPerGridReLU((totalOutputCountFC1 + threadsPerBlockReLU.x - 1) / threadsPerBlockReLU.x);
-    reluKernel<<<blocksPerGridReLU, threadsPerBlockReLU>>>(d_outputFC1, totalOutputCountFC1);
-    cudaDeviceSynchronize();
-
-
-    // Copy back the result after adding biases
-    cudaMemcpy(outputFC1.data(), d_outputFC1, outputFC1.size() * sizeof(float), cudaMemcpyDeviceToHost);
-
-    // Free device memory
-    cudaFree(d_outputFC1);
-    // cudaFree(d_biasesFC1);
-
-    // const int numChannelsToPrintFC1 = 500; // Number of channels to print
-
-    // std::cout << "Fully Connected Layer 1 Output (after adding biases + ReLU):" << std::endl;
-    // for (int ch = 0; ch < numChannelsToPrintFC1; ++ch) {
-    //     // std::cout << "Channel " << (ch + 1) << ":" << std::endl;
-    //     for (int i = 0; i < outputHeightFC1; ++i) {
-    //         for (int j = 0; j < outputWidthFC1; ++j) {
-    //             // Calculate the correct index in the flat output array
-    //             int index = (ch * outputHeightFC1 * outputWidthFC1) + (i * outputWidthFC1) + j;
-    //             std::cout << outputFC1[index] << " ";
-    //         }
-    //         // std::cout << std::endl;
-    //     }
-    //     // std::cout << std::endl; // Extra line break for clarity between channels
-    // }
-    // std::cout << std::endl;
-
-// ----------------- Fully Connected Layer 2 ----------------- //
-
     const int inputHeightFC2 = outputHeightFC1; // 1 
     const int inputWidthFC2 = outputWidthFC1; // 1
     const int numChannelsFC2 = numOutputChannelsFC1; // 500
@@ -599,34 +382,20 @@ int main() {
     const int outputWidthFC2 = 1; // 1
     const int numOutputChannelsFC2 = 10; // 10
 
-    // Load weights and biases for the second fully connected layer
-    std::vector<float> weightsFC2, biasesFC2;
-    loadWeightsAndBiases("trained_weights/fc2.txt", weightsFC2, biasesFC2, 10); // Assuming 10 biases for FC2 layer
 
     // Prepare output array for the convolution result
     std::vector<float> outputFC2(outputHeightFC2 * outputWidthFC2 * numOutputChannelsFC2);
-
-    // Run convolution on GPU
-    runConvolution(outputFC1.data(), weightsFC2.data(), outputFC2.data(), 
-                   inputHeightFC2, inputWidthFC2, kernelSizeFC2, numChannelsFC2, numOutputChannelsFC2);
-    cudaDeviceSynchronize();
 
     // After the convolution, add biases
     float* d_outputFC2;
     float* d_biasesFC2;
     cudaMalloc(&d_outputFC2, outputFC2.size() * sizeof(float));
     cudaMalloc(&d_biasesFC2, biasesFC2.size() * sizeof(float));
-    cudaMemcpy(d_outputFC2, outputFC2.data(), outputFC2.size() * sizeof(float), cudaMemcpyHostToDevice);
-    cudaMemcpy(d_biasesFC2, biasesFC2.data(), biasesFC2.size() * sizeof(float), cudaMemcpyHostToDevice);
-
-    dim3 threadsPerBlockFC2(16, 16, 1);
+    // dim3 threadsPerBlock(16, 16, 1);
     dim3 numBlocksFC2((outputWidthFC2 + 15) / 16, (outputHeightFC2 + 15) / 16, numOutputChannelsFC2);
-    addBiasesKernel<<<numBlocksFC2, threadsPerBlockFC2>>>(d_outputFC2, d_biasesFC2, outputWidthFC2, outputHeightFC2, numOutputChannelsFC2);
 
 
-    cudaMemcpy(outputFC2.data(), d_outputFC2, outputFC2.size() * sizeof(float), cudaMemcpyDeviceToHost);
-
-    // Assume outputFC2 has been computed and contains raw logits from FC2
+        // Assume outputFC2 has been computed and contains raw logits from FC2
     int numElementsFC2 = numOutputChannelsFC2; // For softmax, this is 10
     std::vector<float> softmaxOutput(numElementsFC2);
 
@@ -634,13 +403,124 @@ int main() {
     float *d_softmaxOutput;
     cudaMalloc(&d_softmaxOutput, numElementsFC2 * sizeof(float));
 
-    // Apply softmax kernel
     int threadsPerBlockSoftMax = 256; // Can be tuned
     int sharedDataSize = numElementsFC2 * sizeof(float); // Required shared memory
+
+
+
+
+    if (fs::exists(directoryPath) && fs::is_directory(directoryPath)) {
+        fs::directory_iterator end_itr; // Default construction yields past-the-end
+        for (fs::directory_iterator itr(directoryPath); itr != end_itr; ++itr) {
+            if (fs::is_regular_file(itr->status())) {
+                const auto& filePath = itr->path();
+                if (filePath.extension() == ".txt") {// Check if the file is a text file
+            // std::cout << "Processing " << filePath << std::endl;
+
+  
+            loadMNISTImageMatrix(filePath.string(), image);
+            
+
+// ---------------- First Convolution Layer ----------------------//
+
+    runConvolutionAndAddBiases(image.data(), weightsConv1.data(), outputConv1.data(), 
+                   imageSize, imageSize, 5, 1, 20, biasesConv1.data());
+
+// ---------------- Max Pooling for Conv1 ----------------------// 
+
+
+    cudaMemcpy(d_pooledInputConv1, outputConv1.data(), outputConv1.size() * sizeof(float), cudaMemcpyHostToDevice);
+
+
+    // __global__ void maxPoolingKernel(const float *input, float *output, int inputHeight, int inputWidth, int outputHeight, int outputWidth, int numChannels, int stride, int poolSize)
+    maxPoolingKernel<<<numBlocksPoolingConv1, threadsPerBlock>>>(d_pooledInputConv1, d_pooledOutputConv1, 24, 24, 12, 12, 20, 2, 2);
+    cudaDeviceSynchronize();
+
+    // Check for any errors launching the kernel
+    cudaError_t poolingError = cudaGetLastError();
+    if (poolingError != cudaSuccess) {
+        std::cerr << "CUDA error in maxPoolingKernel: " << cudaGetErrorString(poolingError) << std::endl;
+    }
+
+    // Example: Copy the pooled output back to the host for inspection
+    std::vector<float> pooledOutputConv1(12 * 12 * 20);
+    cudaMemcpy(pooledOutputConv1.data(), d_pooledOutputConv1, pooledOutputConv1.size() * sizeof(float), cudaMemcpyDeviceToHost);
+
+
+
+ // ----------------- Second Convolution Layer ----------------- //
+
+    runConvolutionAndAddBiases(pooledOutputConv1.data(), weightsConv2.data(), outputConv2.data(), 
+                   12, 12, 5, 20, 50, biasesConv2.data());
+
+
+
+    // ---------------- Max Pooling for Conv2 ----------------------//
+
+    cudaMemcpy(d_pooledInputConv2, outputConv2.data(), outputConv2.size() * sizeof(float), cudaMemcpyHostToDevice);
+
+
+    // __global__ void maxPoolingKernel(const float *input, float *output, int inputHeight, int inputWidth, int outputHeight, int outputWidth, int numChannels, int stride, int poolSize)
+    maxPoolingKernel<<<numBlocksPoolingConv2, threadsPerBlock>>>(d_pooledInputConv2, d_pooledOutputConv2, 8, 8, 4, 4, 50, 2, 2);
+    cudaDeviceSynchronize();
+
+    // Check for any errors launching the kernel
+    cudaError_t poolingErrorConv2 = cudaGetLastError();
+    if (poolingErrorConv2 != cudaSuccess) {
+        std::cerr << "CUDA error in maxPoolingKernel: " << cudaGetErrorString(poolingErrorConv2) << std::endl;
+    }
+
+    // Example: Copy the pooled output back to the host for inspection
+    std::vector<float> pooledOutputConv2(4 * 4 * 50);
+    cudaMemcpy(pooledOutputConv2.data(), d_pooledOutputConv2, pooledOutputConv2.size() * sizeof(float), cudaMemcpyDeviceToHost);
+
+// ----------------- Fully Connected Layer 1 ----------------- //
+
+    // Run convolution on GPU
+    runConvolution(pooledOutputConv2.data(), weightsFC1.data(), outputFC1.data(), 
+                   inputHeightFC1, inputWidthFC1, kernelSizeFC1, numChannelsFC1, numOutputChannelsFC1);
+    // runConvolutionAndAddBiases(pooledOutputConv2.data(), weightsFC1.data(), outputFC1.data(), 
+    //                inputHeightFC1, inputWidthFC1, kernelSizeFC1, numChannelsFC1, numOutputChannelsFC1, biasesFC1.data());
+    cudaDeviceSynchronize();
+
+    cudaMemcpy(d_outputFC1, outputFC1.data(), outputFC1.size() * sizeof(float), cudaMemcpyHostToDevice);
+    cudaMemcpy(d_biasesFC1, biasesFC1.data(), biasesFC1.size() * sizeof(float), cudaMemcpyHostToDevice);
+
+    addBiasesKernel<<<numBlocksFC1, threadsPerBlock>>>(d_outputFC1, d_biasesFC1, outputWidthFC1, outputHeightFC1, numOutputChannelsFC1); 
+    cudaDeviceSynchronize();
+
+    // cudaMemcpy(d_outputFC1, outputFC1.data(), outputFC1.size() * sizeof(float), cudaMemcpyDeviceToHost);
+
+    reluKernel<<<blocksPerGridReLU, threadsPerBlockReLU>>>(d_outputFC1, totalOutputCountFC1);
+    cudaDeviceSynchronize();
+
+
+    // Copy back the result after adding biases
+    cudaMemcpy(outputFC1.data(), d_outputFC1, outputFC1.size() * sizeof(float), cudaMemcpyDeviceToHost);
+
+
+
+// ----------------- Fully Connected Layer 2 ----------------- //
+
+    // Run convolution on GPU
+    runConvolution(outputFC1.data(), weightsFC2.data(), outputFC2.data(), 
+                   inputHeightFC2, inputWidthFC2, kernelSizeFC2, numChannelsFC2, numOutputChannelsFC2);
+    cudaDeviceSynchronize();
+
+
+    cudaMemcpy(d_outputFC2, outputFC2.data(), outputFC2.size() * sizeof(float), cudaMemcpyHostToDevice);
+    cudaMemcpy(d_biasesFC2, biasesFC2.data(), biasesFC2.size() * sizeof(float), cudaMemcpyHostToDevice);
+
+    addBiasesKernel<<<numBlocksFC2, threadsPerBlock>>>(d_outputFC2, d_biasesFC2, outputWidthFC2, outputHeightFC2, numOutputChannelsFC2);
+
+
+    cudaMemcpy(outputFC2.data(), d_outputFC2, outputFC2.size() * sizeof(float), cudaMemcpyDeviceToHost);
+
+
     softmaxKernel<<<1, threadsPerBlockSoftMax, sharedDataSize>>>(d_outputFC2, d_softmaxOutput, numElementsFC2);
     cudaDeviceSynchronize();
 
-    // Copy softmax output back to host
+
     cudaMemcpy(softmaxOutput.data(), d_softmaxOutput, numElementsFC2 * sizeof(float), cudaMemcpyDeviceToHost);
 
     // print the softmax output
@@ -656,38 +536,24 @@ int main() {
     }
     std::sort(probabilities.rbegin(), probabilities.rend()); // Sort in descending order
 
-    // std::cout << "Top 5 Softmax Probabilities:" << std::endl;
-    // for (int i = 0; i < 5; ++i) {
-    //     std::cout << probabilities[i].first * 100 << "% class " << probabilities[i].second << std::endl;
-    // }
-
-
-    cudaFree(d_outputFC2);
-    cudaFree(d_biasesFC2);
-    cudaFree(d_softmaxOutput);
 
     std::cout << filePath.filename() << " " << probabilities[0].second << std::endl;
-
-
-    // std::cout << "Fully Connected Layer 2 Output (after adding biases):" << std::endl;
-    // for (int ch = 0; ch < numOutputChannelsFC2; ++ch) {
-    //     std::cout << "Channel " << (ch + 1) << ":" << std::endl;
-    //     for (int i = 0; i < outputHeightFC2; ++i) {
-    //         for (int j = 0; j < outputWidthFC2; ++j) {
-    //             // Calculate the correct index in the flat output array
-    //             int index = (ch * outputHeightFC2 * outputWidthFC2) + (i * outputWidthFC2) + j;
-    //             std::cout << outputFC2[index] << " ";
-    //         }
-    //         std::cout << std::endl;
-    //     }
-    //     std::cout << std::endl; // Extra line break for clarity between channels
-    // }
 
         
             }
             }
         }
     }
+
+    cudaFree(d_pooledInputConv1);
+    cudaFree(d_pooledOutputConv1);
+    cudaFree(d_pooledInputConv2);
+    cudaFree(d_pooledOutputConv2);
+    cudaFree(d_outputFC1);
+    cudaFree(d_biasesFC1);
+    cudaFree(d_outputFC2);
+    cudaFree(d_biasesFC2);
+    cudaFree(d_softmaxOutput);
     
     // End clock
     auto end = std::chrono::high_resolution_clock::now();
