@@ -175,6 +175,7 @@ void runConvolutionAndAddBiases(const float* input, const float* kernels, float*
     cudaFree(d_input);
     cudaFree(d_kernels);
     cudaFree(d_output);
+    cudaFree(d_biases);
 }
 
 
@@ -294,7 +295,7 @@ __global__ void softmaxKernel(float* input, float* output, int count) {
 int main() {
     const fs::path directoryPath("processed_data10k");
     // STart clock
-    auto start = std::chrono::high_resolution_clock::now();
+
 
     // Assuming 28x28 input image size (MNIST)
     std::vector<float> image(28 * 28); // Assuming MNIST images are 28x28 pixels
@@ -408,7 +409,7 @@ int main() {
 
 
 
-
+    auto start = std::chrono::high_resolution_clock::now();
     if (fs::exists(directoryPath) && fs::is_directory(directoryPath)) {
         fs::directory_iterator end_itr; // Default construction yields past-the-end
         for (fs::directory_iterator itr(directoryPath); itr != end_itr; ++itr) {
@@ -545,6 +546,11 @@ int main() {
         }
     }
 
+        // End clock
+    auto end = std::chrono::high_resolution_clock::now();
+    std::chrono::duration<double> elapsed = end - start;
+    std::cout << "Time taken: " << elapsed.count() << " s" << std::endl;
+
     cudaFree(d_pooledInputConv1);
     cudaFree(d_pooledOutputConv1);
     cudaFree(d_pooledInputConv2);
@@ -555,10 +561,7 @@ int main() {
     cudaFree(d_biasesFC2);
     cudaFree(d_softmaxOutput);
     
-    // End clock
-    auto end = std::chrono::high_resolution_clock::now();
-    std::chrono::duration<double> elapsed = end - start;
-    std::cout << "Time taken: " << elapsed.count() << " s" << std::endl;
+
 
     return 0;
 }
