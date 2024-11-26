@@ -104,5 +104,3 @@ kerbno1_kerbno2/
     ├── assignment2_subtask3.cu
     └── assignment2_subtask4.cu
 ```
-
-Replace `[...]` placeholders with the actual parameters for your tasks.
